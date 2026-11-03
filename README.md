@@ -2,6 +2,10 @@
 
 A REST API for user-owned task management, built with Node.js, Express 5, TypeScript, and PostgreSQL.
 
+- **Live API:** https://todo-api-ule1.onrender.com/
+- **Swagger UI:** https://todo-api-ule1.onrender.com/api-docs
+- **OpenAPI JSON:** https://todo-api-ule1.onrender.com/openapi.json
+
 ## Highlights
 - User registration and login with JWT-based access and refresh tokens in HttpOnly cookies
 - Per-user task CRUD with ownership checks
@@ -27,7 +31,7 @@ npm run db:migrate
 npm run dev
 ```
 
-The API listens on `http://localhost:3000` by default. Swagger UI is available at `/api-docs` and the OpenAPI contract at `/openapi.json`.
+The API listens on `http://localhost:3000` by default. Locally, Swagger UI is available at `/api-docs` and the OpenAPI contract at `/openapi.json`. The deployed endpoints are linked above.
 
 For a fully containerized stack, configure the local values in `.env` and run:
 
