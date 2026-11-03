@@ -4,7 +4,6 @@ A REST API for user-owned task management, built with Node.js, Express 5, TypeSc
 
 - **Live API:** https://todo-api-ule1.onrender.com/
 - **Swagger UI:** https://todo-api-ule1.onrender.com/api-docs
-- **OpenAPI JSON:** https://todo-api-ule1.onrender.com/openapi.json
 
 ## Highlights
 - User registration and login with JWT-based access and refresh tokens in HttpOnly cookies
