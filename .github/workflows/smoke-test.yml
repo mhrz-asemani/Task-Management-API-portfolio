@@ -1,0 +1,205 @@
+name: Smoke Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: API and database smoke test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: smoke_test_password
+          POSTGRES_DB: todo_db_smoke
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d todo_db_smoke"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PORT: 3000
+      JWT_SECRET: smoke_test_only_secret_at_least_32_characters
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: smoke_test_password
+      DB_NAME: todo_db_smoke
+      DB_SSL: "false"
+      CLOUDINARY_CLOUD_NAME: smoke-test-placeholder
+      CLOUDINARY_API_KEY: smoke-test-placeholder
+      CLOUDINARY_API_SECRET: smoke-test-placeholder
+      FRONTEND_ORIGIN: http://localhost:5173
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Apply database migrations
+        run: npm run db:migrate
+
+      - name: Start API
+        env:
+          NODE_ENV: production
+        run: |
+          nohup npm start > /tmp/task-management-api-smoke.log 2>&1 &
+          echo $! > /tmp/task-management-api-smoke.pid
+
+      - name: Wait for API
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1:3000/ > /tmp/todo-api-root.txt; then
+              cat /tmp/todo-api-root.txt
+              exit 0
+            fi
+            sleep 2
+          done
+          cat /tmp/task-management-api-smoke.log
+          echo "API did not become ready within 60 seconds"
+          exit 1
+
+      - name: Run authenticated CRUD smoke test
+        run: |
+          node <<'NODE'
+          const assert = require('node:assert/strict');
+
+          const baseUrl = 'http://127.0.0.1:3000';
+          const email = `smoke-${Date.now()}@example.com`;
+          const password = 'Smoke-Test-Password-123!';
+
+          async function request(path, options = {}) {
+            return fetch(`${baseUrl}${path}`, options);
+          }
+
+          async function expectStatus(response, expected, label) {
+            if (response.status !== expected) {
+              const body = await response.text();
+              assert.equal(
+                response.status,
+                expected,
+                `${label}: expected HTTP ${expected}, received ${response.status}; body=${body}`,
+              );
+            }
+            console.log(`PASS ${label} (HTTP ${expected})`);
+          }
+
+          async function main() {
+            const root = await request('/');
+            await expectStatus(root, 200, 'API health endpoint');
+
+            const unauthenticated = await request('/todos');
+            await expectStatus(unauthenticated, 401, 'Reject unauthenticated todo access');
+
+            const signup = await request('/auth/signup', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ email, password }),
+            });
+            await expectStatus(signup, 201, 'User signup');
+
+            const login = await request('/auth/login', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ email, password }),
+            });
+            await expectStatus(login, 200, 'User login');
+
+            const setCookies = login.headers.getSetCookie();
+            const accessCookie = setCookies.find((value) => value.startsWith('accessToken='));
+            const refreshCookie = setCookies.find((value) => value.startsWith('refreshToken='));
+            assert.ok(accessCookie, 'Login response did not set accessToken cookie');
+            assert.ok(refreshCookie, 'Login response did not set refreshToken cookie');
+            assert.match(accessCookie, /HttpOnly/i, 'accessToken must be HttpOnly');
+            assert.match(accessCookie, /Secure/i, 'accessToken must be Secure in production');
+            console.log('PASS Login issues secure HttpOnly cookies');
+
+            const cookieHeader = [accessCookie, refreshCookie]
+              .map((value) => value.split(';', 1)[0])
+              .join('; ');
+
+            const listBefore = await request('/todos', {
+              headers: { cookie: cookieHeader },
+            });
+            await expectStatus(listBefore, 200, 'List todos after login');
+            assert.deepEqual(await listBefore.json(), [], 'New user should start with no todos');
+
+            const create = await request('/todos', {
+              method: 'POST',
+              headers: {
+                'content-type': 'application/json',
+                cookie: cookieHeader,
+              },
+              body: JSON.stringify({ text: 'Smoke test todo' }),
+            });
+            await expectStatus(create, 201, 'Create todo');
+            const todo = await create.json();
+            assert.ok(todo.id, 'Created todo did not include an id');
+
+            const update = await request(`/todos/${todo.id}`, {
+              method: 'PUT',
+              headers: {
+                'content-type': 'application/json',
+                cookie: cookieHeader,
+              },
+              body: JSON.stringify({ done: true }),
+            });
+            await expectStatus(update, 200, 'Update todo');
+            assert.equal((await update.json()).done, true, 'Todo was not marked done');
+
+            const listAfterUpdate = await request('/todos', {
+              headers: { cookie: cookieHeader },
+            });
+            await expectStatus(listAfterUpdate, 200, 'List todos after update');
+            assert.equal((await listAfterUpdate.json()).length, 1, 'Expected exactly one todo');
+
+            const remove = await request(`/todos/${todo.id}`, {
+              method: 'DELETE',
+              headers: { cookie: cookieHeader },
+            });
+            await expectStatus(remove, 204, 'Delete todo');
+
+            const logout = await request('/auth/logout', {
+              method: 'POST',
+              headers: { cookie: cookieHeader },
+            });
+            await expectStatus(logout, 204, 'Logout');
+
+            const refreshAfterLogout = await request('/auth/refresh', {
+              method: 'POST',
+              headers: { cookie: cookieHeader },
+            });
+            await expectStatus(refreshAfterLogout, 401, 'Reject refresh after logout');
+
+            console.log('Smoke test completed successfully.');
+          }
+
+          main().catch((error) => {
+            console.error(error);
+            process.exitCode = 1;
+          });
+          NODE
+
+      - name: Show API logs on failure
+        if: failure()
+        run: cat /tmp/task-management-api-smoke.log || true

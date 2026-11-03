@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    /** "module": "nodenext"
+        just means "follow whatever Node is actually configured to do," and since your package.json
+        says CommonJS, TypeScript will compile using CommonJS require/module.exports semantics
+        under the hood, even though you'll still write clean import/export syntax in your .ts files     
+    */
+    "module": "commonjs", /** means: force complie to CommonJS */
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "types": [
+      "node",
+      "jest"
+    ]
+  }
+}

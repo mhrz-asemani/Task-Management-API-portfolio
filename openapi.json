@@ -1,0 +1,1061 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Task Management API",
+    "version": "1.0.0",
+    "description": "HTTP API for user accounts and per-user todo management. Authentication uses HttpOnly cookies; access and refresh tokens are not returned in response bodies. Socket.IO events are documented in the x-socketio-events extension. State-changing requests with an Origin or Referer header are restricted to the configured frontend origin.",
+    "contact": {
+      "name": "API maintainers"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local development"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Basic service availability"
+    },
+    {
+      "name": "Authentication",
+      "description": "Account registration and cookie-based authentication"
+    },
+    {
+      "name": "Todos",
+      "description": "Todos belonging to the authenticated user"
+    }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Check API availability",
+        "operationId": "getRoot",
+        "responses": {
+          "200": {
+            "description": "API responds successfully",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string",
+                  "example": "Hello World"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/auth/signup": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Create an account",
+        "operationId": "signup",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignupRequest"
+              },
+              "example": {
+                "email": "person@example.com",
+                "password": "example-password"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Account created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgument"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/AlreadyExists"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Log in and issue authentication cookies",
+        "operationId": "login",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Logged in; sets HttpOnly accessToken and refreshToken cookies",
+            "headers": {
+              "Set-Cookie": {
+                "description": "Authentication cookies are set by the server.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                },
+                "example": {
+                  "message": "logged in"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgument"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Rotate refresh token and renew access token",
+        "operationId": "refreshAccessToken",
+        "description": "Atomically consumes the current refresh token and issues a replacement refresh token plus a renewed access token. Reuse of a consumed token is rejected. Concurrent requests using the same refresh token are serialized; only one can succeed.",
+        "security": [
+          {
+            "refreshCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Refresh token rotated; new accessToken and refreshToken cookies are set",
+            "headers": {
+              "Set-Cookie": {
+                "description": "A renewed accessToken cookie is set.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                },
+                "example": {
+                  "message": "tokens refreshed"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgument"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Log out and clear authentication cookies",
+        "operationId": "logout",
+        "description": "Deletes the refresh-token record matching the refreshToken cookie, if present, and clears both authentication cookies. This endpoint does not require a valid access token.",
+        "parameters": [
+          {
+            "name": "refreshToken",
+            "in": "cookie",
+            "required": false,
+            "description": "Refresh token cookie; normally supplied automatically by the browser.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Logged out; no response body"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/todos": {
+      "get": {
+        "tags": [
+          "Todos"
+        ],
+        "summary": "List the authenticated user's todos",
+        "operationId": "listTodos",
+        "security": [
+          {
+            "accessCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Todos returned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Todo"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Todos"
+        ],
+        "summary": "Create a todo",
+        "operationId": "createTodo",
+        "description": "Creates a todo for the authenticated user and emits the Socket.IO event `todo:created` to that user's room.",
+        "security": [
+          {
+            "accessCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTodo"
+              },
+              "example": {
+                "text": "Prepare release",
+                "done": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Todo created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Todo"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgument"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/todos/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "description": "Todo identifier",
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      ],
+      "put": {
+        "tags": [
+          "Todos"
+        ],
+        "summary": "Update an owned todo",
+        "operationId": "updateTodo",
+        "description": "Updates only supplied fields; at least one of `text` or `done` must be supplied. Emits `todo:updated` on success.",
+        "security": [
+          {
+            "accessCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTodo"
+              },
+              "examples": {
+                "markDone": {
+                  "summary": "Update only done",
+                  "value": {
+                    "done": true
+                  }
+                },
+                "rename": {
+                  "summary": "Update text",
+                  "value": {
+                    "text": "Prepare release"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Todo updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Todo"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgument"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Todos"
+        ],
+        "summary": "Delete an owned todo",
+        "operationId": "deleteTodo",
+        "description": "Returns 204 even when no todo owned by the authenticated user matches the ID. Emits `todo:deleted` to the current user's room even if no row was deleted; this reflects current implementation behavior.",
+        "security": [
+          {
+            "accessCookie": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Delete request processed; no response body"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/todos/{id}/image": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "description": "Todo identifier",
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      ],
+      "post": {
+        "tags": [
+          "Todos"
+        ],
+        "summary": "Upload an image for an owned todo",
+        "operationId": "uploadTodoImage",
+        "description": "Uploads the image to Cloudinary, updates the todo, and emits `todo:updated` on success.",
+        "security": [
+          {
+            "accessCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "image"
+                ],
+                "properties": {
+                  "image": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Image file to upload"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Image uploaded and todo updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Todo"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgument"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/healthz": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Check API process liveness",
+        "operationId": "getLiveness",
+        "responses": {
+          "200": {
+            "description": "The API process can respond to HTTP requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "alive"
+                      ]
+                    }
+                  }
+                },
+                "example": {
+                  "status": "alive"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Check whether the API is ready to serve requests",
+        "operationId": "getReadiness",
+        "description": "Checks database connectivity. Does not expose internal error details.",
+        "responses": {
+          "200": {
+            "description": "The API and database are ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "checks"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ready"
+                      ]
+                    },
+                    "checks": {
+                      "type": "object",
+                      "required": [
+                        "database"
+                      ],
+                      "properties": {
+                        "database": {
+                          "type": "string",
+                          "enum": [
+                            "ok"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "status": "ready",
+                  "checks": {
+                    "database": "ok"
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "description": "A required dependency is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "checks"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "not_ready"
+                      ]
+                    },
+                    "checks": {
+                      "type": "object",
+                      "required": [
+                        "database"
+                      ],
+                      "properties": {
+                        "database": {
+                          "type": "string",
+                          "enum": [
+                            "unavailable"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "status": "not_ready",
+                  "checks": {
+                    "database": "unavailable"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "accessCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "accessToken",
+        "description": "HttpOnly access-token cookie set by POST /auth/login or POST /auth/refresh."
+      },
+      "refreshCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "refreshToken",
+        "description": "HttpOnly refresh-token cookie set by POST /auth/login or rotated by POST /auth/refresh."
+      }
+    },
+    "schemas": {
+      "User": {
+        "type": "object",
+        "required": [
+          "id",
+          "email"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "example": 1
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "person@example.com"
+          }
+        }
+      },
+      "Todo": {
+        "type": "object",
+        "required": [
+          "id",
+          "text",
+          "done",
+          "user_id",
+          "image_url"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "example": 1
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "example": "Prepare release"
+          },
+          "done": {
+            "type": "boolean",
+            "example": false
+          },
+          "user_id": {
+            "type": "integer",
+            "example": 1,
+            "readOnly": true
+          },
+          "image_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri",
+            "example": null
+          }
+        }
+      },
+      "CreateTodo": {
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "example": "Prepare release"
+          },
+          "done": {
+            "type": "boolean",
+            "default": false,
+            "example": false
+          }
+        }
+      },
+      "UpdateTodo": {
+        "type": "object",
+        "minProperties": 1,
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "done": {
+            "type": "boolean"
+          }
+        },
+        "description": "At least one property is required. Empty text is invalid."
+      },
+      "MessageResponse": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ApiError": {
+        "type": "object",
+        "required": [
+          "success",
+          "error"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": false
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiErrorDetails"
+          }
+        }
+      },
+      "ApiErrorDetails": {
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "status"
+        ],
+        "properties": {
+          "code": {
+            "type": "integer",
+            "description": "HTTP status code"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "example": "INVALID_ARGUMENT"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Optional additional reason, e.g. EXPIRED_TOKEN."
+          }
+        }
+      },
+      "RateLimitError": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message",
+              "status"
+            ],
+            "properties": {
+              "code": {
+                "type": "integer",
+                "const": 429
+              },
+              "message": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "const": "RESOURCE_EXHAUSTED"
+              }
+            }
+          }
+        }
+      },
+      "SignupRequest": {
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "person@example.com"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "description": "Must contain at least 8 characters."
+          }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "person@example.com"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Must not be empty."
+          }
+        }
+      }
+    },
+    "responses": {
+      "InvalidArgument": {
+        "description": "Invalid input or required input is missing",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            },
+            "example": {
+              "success": false,
+              "error": {
+                "code": 400,
+                "message": "text is required",
+                "status": "INVALID_ARGUMENT"
+              }
+            }
+          }
+        }
+      },
+      "Unauthenticated": {
+        "description": "Authentication is missing, invalid, or expired",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            },
+            "example": {
+              "success": false,
+              "error": {
+                "code": 401,
+                "message": "Missing token",
+                "status": "UNAUTHENTICATED",
+                "reason": "MISSING_TOKEN"
+              }
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "No todo owned by the authenticated user matches this ID",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            },
+            "example": {
+              "success": false,
+              "error": {
+                "code": 404,
+                "message": "Todo not found",
+                "status": "NOT_FOUND"
+              }
+            }
+          }
+        }
+      },
+      "AlreadyExists": {
+        "description": "An account with this email already exists",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            },
+            "example": {
+              "success": false,
+              "error": {
+                "code": 409,
+                "message": "User already exists",
+                "status": "ALREADY_EXISTS"
+              }
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Request rate limit exceeded. Auth routes allow up to 10 requests per 15-minute window; general routes allow up to 100.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RateLimitError"
+            },
+            "example": {
+              "error": {
+                "code": 429,
+                "message": "Too many requests, please try again later",
+                "status": "RESOURCE_EXHAUSTED"
+              }
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "Unexpected server error; internal details are not exposed",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            },
+            "example": {
+              "success": false,
+              "error": {
+                "code": 500,
+                "message": "Something went wrong",
+                "status": "INTERNAL"
+              }
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "The supplied Origin or Referer does not match the configured frontend origin",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            },
+            "example": {
+              "success": false,
+              "error": {
+                "code": 403,
+                "message": "Request origin is not allowed",
+                "status": "FORBIDDEN"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "x-socketio-events": {
+    "authentication": "The Socket.IO handshake reads the accessToken cookie; clients without a valid cookie are disconnected.",
+    "rooms": "Authenticated sockets join user:<userId>.",
+    "emittedEvents": [
+      {
+        "event": "todo:created",
+        "description": "Emitted to the owning user's room after a todo is created.",
+        "payload": {
+          "$ref": "#/components/schemas/Todo"
+        }
+      },
+      {
+        "event": "todo:updated",
+        "description": "Emitted to the owning user's room after a todo is updated or an image is uploaded.",
+        "payload": {
+          "$ref": "#/components/schemas/Todo"
+        }
+      },
+      {
+        "event": "todo:deleted",
+        "description": "Emitted to the requesting user's room after a delete request.",
+        "payload": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    ]
+  }
+}
